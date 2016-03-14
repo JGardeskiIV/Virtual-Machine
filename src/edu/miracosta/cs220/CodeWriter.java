@@ -23,12 +23,16 @@ import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 
 public class CodeWriter {
-
+    /*******************
+     * Class Variables *
+     *******************/
+    private static int labelCounter = 1;    //  Used in generating branch labels (_#)
+    
     /**********************
      * Instance Variables *
      **********************/
     private PrintWriter outputFile;
-    private String curVMfile;   //  name of current .vm file being translated
+    private String curVMfileName;   //  name of current .vm file being translated
 
     /****************
      * Constructors *
@@ -66,9 +70,9 @@ public class CodeWriter {
      *
      * @throws  FileNotFoundException   -   if outFileName could not be opened or == null
      */
-    public CodeWriter(String outFileName, String newVMfile) throws FileNotFoundException {
+    public CodeWriter(String outFileName, String newVMfileName) throws FileNotFoundException {
         this(outFileName);
-        setFileName(newVMfile);
+        setFileName(newVMfileName);
     }
 
     /**************************
@@ -83,11 +87,11 @@ public class CodeWriter {
      *
      * @param   newVMfile   -   the name of the new VM file being translated
      */
-    public void setFileName(String newVMfile) {
+    public void setFileName(String newVMfileName) {
         int extIndex = newVMfile.indexOf(".vm");
         if (extIndex != -1) {
             //  If an extension is present, get rid of it
-            curVMfile = newVMfile.substring(0, extIndex);
+            curVMfileName = newVMfileName.substring(0, extIndex);
         }
     }
 
@@ -119,6 +123,8 @@ public class CodeWriter {
      * @param   command -   the given arithmetic command
      */
     public void writeArithmetic(String command) {
+        //  Not case-sensitive
+        command = command.toLower();
         switch(command) {
             case "add":
                 writeBinaryOp();
@@ -144,10 +150,9 @@ public class CodeWriter {
                 outputFile.println("M=M+1");
                 break;
             case "eq":
-                break;
             case "lt":
-                break;
             case "gt":
+                writeInequality(command);
                 break;
         }
     }
@@ -164,12 +169,43 @@ public class CodeWriter {
      * @param   index   -   determines which address to access within segment
      */
     public void writePushPop(Parser.Command command, String segment, int index) {
-
+        
     }
-
-    /***************************
-     * Private Writing Helpers *
-     ***************************/
+    
+    /**************************
+     * General Helper Methods *
+     **************************/
+    
+    /**
+     * Generates a label for branching in assembly in the format _#.
+     * 
+     * PRECONDITION:    no other method adjusts the value of labelCounter
+     * POSTCONDITION:   labelCounter represents the next available label,
+     *                  and the generated label does not specify an assembly instruction
+     */
+    private String getBranchLabel() {
+        return "_" + labelCounter++;
+    }
+    
+    /**
+     * Generates a static label in the format fileName.index that will
+     * access the static virtual memory segment.
+     * 
+     * PRECONDITION:    curVMfileName is not null -> a .vm file is being translated
+     * POSTCONDITION:   the generated label does not specify an assembly instruction
+     * 
+     * @param   index   -   the index of the static segment to access
+     */
+    private String genStaticLabel(int index) {
+        StringBuilder temp = new StringBuilder(curVMfileName);
+        temp.append(".");
+        temp.append(index);
+        return temp.toString();
+    }
+    
+    /****************************
+     * Assembly Writing Helpers *
+     ****************************/
 
     /**
      * Writes assembly code to pop the top-most value off the stack and store it in the D-Register
@@ -228,5 +264,44 @@ public class CodeWriter {
         outputFile.println("@SP");
         outputFile.println("A=M-1");
         outputFile.println("M=!M");
+    }
+    
+    /**
+     * Writes assembly code to perform an inequality ("eq", "lt", or "gt") operation
+     * on the top two values on the stack.
+     * 
+     * PRECONDITION:    the VM command is an eq, lt, or gt C_ARITHMETIC command
+     * POSTCONDITION:   translated assembly code has been written to the output file
+     * 
+     * @param   command -   the VM command to perform [determines the assembly jump condition]
+     */
+    private void writeInequality(String command) {
+        String jump;
+        String label1 = getBranchLabel();
+        String label2 = getBranchLabel();
+        //  A "not" will be applied to the jump condition
+        //  Thus, if command is "<" or ">", the jump condition is reversed.
+        if (command.equals("eq") {
+            jump = "JEQ";
+        } else if (command.equals("lt")) {
+            jump = "JGT";
+        } else {
+            jump = "JLT";
+        }
+        //  Construct assembly code
+        writePopD();    //  SP is updated to the address of SP - 1
+        outputFile.println("A=A-1");
+        outputFile.println("D=D-M");        //  D = value of SP - 1 - value of SP - 2
+        outputFile.println("@" + label1);
+        outputFile.println("D;" + jump);    //  if condition is true, jump to label1 branch
+        outputFile.println("D=0");          //  D = false
+        outputFile.println("@" + label2);   
+        outputFile.println("0;JMP");        
+        outputFile.println("(" + label1 + ")"); //  condition is true branch
+        outputFile.println("D=-1");             //  D = true
+        outputFile.println("(" + label2 + ")"); //  condition is false branch
+        outputFile.println("@SP");
+        outputFile.println("A=M-1");
+        outputFile.println("M=D");          //  address of (original) SP - 2 = result of comparison (D)
     }
 }

@@ -3,7 +3,9 @@
     <words>
       <w>arith</w>
       <w>mfile</w>
+      <w>msegment</w>
       <w>tecs</w>
+      <w>translater</w>
     </words>
   </dictionary>
 </component>

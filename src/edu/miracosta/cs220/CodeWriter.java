@@ -4,16 +4,20 @@
  * Description:   Translates VM commands into Hack assembly code.
  *
  * History:       Mar. 13, J, author, stubs & documentation based off of Ch. 7 UML
- *                Mar. 13-14, J, defined constructors, basic public & private methods
+ *                Mar. 13, J, defined constructors, basic public & private methods
+ *                Mar. 14, J, completed & refactored part 1 write methods
  *
  * Methods:       Public:   CodeWriter(String), CodeWriter(String, String),
  *                          setFileName(String), close(),
- *                          writeArithmetic(String), writePushPop(),
+ *                          writeArithmetic(String),
+ *                          writePushPop(Parser.Command, String, int)
  *
- *                Private:  writeAdd(), writePushConstant(), genStatic(),
- *                          writePushD(), writePopD(),
- *
- * Notes:         //    TODO - WRITE METHODS NEED TESTING
+ *                Private:  initTranslator(), getBranchLabel(), getStaticLabel(int),
+ *                          writeIndexOffset(String, int),
+ *                          writePopD(), writePopToMem(String, int), writePopToStatic(int),
+ *                          writePushD(), writePushConstant(int),
+ *                          writePushMemory(String, int), writePushStatic(int),
+ *                          writeBinaryOp(String), writeUnaryOp, writeInequality(String)
  *
  ************************************************************************************/
 package edu.miracosta.cs220;
@@ -21,13 +25,20 @@ package edu.miracosta.cs220;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
+import java.util.HashMap;
 
 public class CodeWriter {
-    /*******************
-     * Class Variables *
-     *******************/
-    private static int labelCounter = 1;    //  Used in generating branch labels (_#)
-    
+    /*******************************
+     * Class Variables & Constants *
+     *******************************/
+    //  Stores VM commands & memory segments as keys and their assembly translations as values
+    private static HashMap<String, String> translator;
+    //  Used in generating branch labels (_#)
+    private static int labelCounter = 1;
+
+    private static final String POINTER_LOC = "3";
+    private static final String TEMP_LOC = "5";
+
     /**********************
      * Instance Variables *
      **********************/
@@ -55,6 +66,7 @@ public class CodeWriter {
         } else {
             throw new FileNotFoundException("No output file name provided to CodeWriter constructor.");
         }
+        initTranslator();   //  Build VM commands/segments -> assembly variants
     }
 
     /**
@@ -66,7 +78,7 @@ public class CodeWriter {
      *                  or a FileNotFoundException has been thrown
      *
      * @param   outFileName -   the name of the file to be opened and written to
-     * @param   newVMfile   -   the name of the VM file being translated
+     * @param   newVMfileName   -   the name of the VM file being translated
      *
      * @throws  FileNotFoundException   -   if outFileName could not be opened or == null
      */
@@ -85,10 +97,10 @@ public class CodeWriter {
      * PRECONDITION:    newVMfile has been successfully opened and is ready to be translated
      * POSTCONDITION:   curVMfile has been updated
      *
-     * @param   newVMfile   -   the name of the new VM file being translated
+     * @param   newVMfileName   -   the name of the new VM file being translated
      */
     public void setFileName(String newVMfileName) {
-        int extIndex = newVMfile.indexOf(".vm");
+        int extIndex = newVMfileName.indexOf(".vm");
         if (extIndex != -1) {
             //  If an extension is present, get rid of it
             curVMfileName = newVMfileName.substring(0, extIndex);
@@ -106,7 +118,6 @@ public class CodeWriter {
             outputFile.close();
         } catch (IllegalStateException e) {
             //  If already closed, do nothing
-            return;
         }
     }
 
@@ -123,36 +134,28 @@ public class CodeWriter {
      * @param   command -   the given arithmetic command
      */
     public void writeArithmetic(String command) {
-        //  Not case-sensitive
-        command = command.toLower();
+        //  Command is not case-sensitive
+        command = command.toLowerCase();
         switch(command) {
             case "add":
-                writeBinaryOp();
-                outputFile.println("M=M+D");
-                break;
             case "sub":
-                writeBinaryOp();
-                outputFile.println("M=M-D");
-                break;
             case "and":
-                writeBinaryOp();
-                outputFile.println("M=M&D");
-                break;
             case "or":
-                writeBinaryOp();
-                outputFile.println("M=M|D");
+                writeBinaryOp(translator.get(command));
                 break;
             case "not":
                 writeUnaryOp();
                 break;
             case "neg":
                 writeUnaryOp();
+                //  Finish 2's Complement (not + 1)
                 outputFile.println("M=M+1");
                 break;
             case "eq":
             case "lt":
             case "gt":
-                writeInequality(command);
+                //  REMINDER: translator HashMap pairs lt & gt with the not of the condition [!(lt) = JGT, !(gt) = JLT]
+                writeInequality(translator.get(command));
                 break;
         }
     }
@@ -161,7 +164,7 @@ public class CodeWriter {
      * Writes the assembly code that is the translation of the given command, where command
      * is either C_PUSH or C_POP.
      *
-     * PRECONDITION:    command is C_PUSH or C_POP
+     * PRECONDITION:    the VM command is C_PUSH or C_POP
      * POSTCONDITION:   the translated assembly code has been written to the output file
      *
      * @param   command -   a Command of type C_PUSH or C_POP
@@ -169,12 +172,78 @@ public class CodeWriter {
      * @param   index   -   determines which address to access within segment
      */
     public void writePushPop(Parser.Command command, String segment, int index) {
-        
+        segment = segment.toLowerCase();
+        if (command == Parser.Command.C_PUSH) {
+            switch(segment) {
+                case "constant":
+                    writePushConstant(index);
+                    break;
+                case "static":
+                    writePushStatic(index);
+                    break;
+                default:
+                    //  Catches memory segments: local, argument, this, that, pointer, & temp
+                    //  REMINDER:   translator HashMap handles pointer vs. address notation
+                    //              ->  difference between local..that & pointer/temp
+                    writePushMemory(translator.get(segment), index);
+                    break;
+            }
+        } else {
+            //  C_POP
+            if (segment.equals("static")) {
+                writePopToStatic(index);
+            } else {
+                //  Catches memory segments: local, argument, this, that, pointer, & temp
+                //  REMINDER:   translator HashMap handles pointer vs. address notation
+                //              ->  difference between local..that & pointer/temp
+                writePopToMem(translator.get(segment), index);
+            }
+        }
     }
     
     /**************************
      * General Helper Methods *
      **************************/
+
+    /**
+     * Builds out the translator HashMap to hold VM commands & memory segments and
+     * their implementation in assembly.
+     *
+     * NOTE:    Accounts for pointer [RAM[base] + i] vs. value [address + i] notation
+     *          AND
+     *          Pairing the "lt" or "gt" arithmetic commands with the "not" of the
+     *          jump condition to be used in assembly.
+     *          ->  instead of testing x < y as x - y < 0,
+     *              test as y - x > 0
+     *
+     *          **  Saves two lines of assembly when translated.
+     *
+     * PRECONDITION:    N/A
+     * POSTCONDITION:   translator contains all predefined translations
+     */
+    private void initTranslator() {
+        translator = new HashMap<>();
+        //  Add all binary C_ARITHMETIC commands and their operators/jump codes
+        translator.put("add", "+");
+        translator.put("sub", "-");
+        translator.put("and", "&");
+        translator.put("or",  "|");
+        //  A "not" will be applied to the jump condition in "eq", "lt", and "gt"
+        //  Thus, if command is "<" or ">", the jump condition is reversed.
+        translator.put("eq",  "JEQ");
+        translator.put("lt",  "JGT");   //  !(lt) = JGT
+        translator.put("gt",  "JLT");   //  !(gt) = JLT
+
+        //  Add all virtual memory segments (except for constant)
+        //  local..that -> [base + i] = [RAM[address] + i]
+        translator.put("local", "LCL");
+        translator.put("argument", "ARG");
+        translator.put("this", "THIS");
+        translator.put("that", "THAT");
+        //  pointer, temp -> [address + i]
+        translator.put("pointer", "3");
+        translator.put("temp", "5");
+    }
     
     /**
      * Generates a label for branching in assembly in the format _#.
@@ -196,22 +265,47 @@ public class CodeWriter {
      * 
      * @param   index   -   the index of the static segment to access
      */
-    private String genStaticLabel(int index) {
-        StringBuilder temp = new StringBuilder(curVMfileName);
-        temp.append(".");
-        temp.append(index);
-        return temp.toString();
+    private String getStaticLabel(int index) {
+        return curVMfileName + "." + index;
     }
     
     /****************************
      * Assembly Writing Helpers *
      ****************************/
 
+    //  Push & Pop Helpers
+
     /**
-     * Writes assembly code to pop the top-most value off the stack and store it in the D-Register
-     * and simultaneously update the stack pointer (SP).
+     * Generates assembly code to handle the pointer vs. value notation difference in
+     * handling the local..that vs. pointer/temp virtual segments.
      *
-     * PRECONDITION:    a value needs to be popped off the stack and stored into the D-Register
+     * NOTE:    Loads the segment, stores the address OR value into D, and loads the
+     *          index into A. STOPS HERE, as push/pop handle the sum differently.
+     *
+     * PRECONDITION:    the VM command is C_PUSH or C_POP (writePushPop() was called)
+     * POSTCONDITION:   assembly commands to access the appropriate segment and "element"
+     *                  have been written to the output file
+     *
+     * @param   segment -   the VM virtual memory segment to be accessed
+     * @param   index   -   the specific address within the segment to access
+     */
+    private void writeIndexOffset(String segment, int index) {
+        outputFile.println("@" + segment);
+        if (segment.equals(POINTER_LOC) || segment.equals(TEMP_LOC)) {
+            //  Pointer or Temp = value, not an address
+            outputFile.println("D=A");
+        } else {
+            //  All other segments = pointer notation (base + i)
+            outputFile.println("D=M");
+        }
+        outputFile.println("@" + index);
+    }
+
+    /**
+     * Writes assembly code to pop the top-most value off the stack and store it in the D-Register.
+     *
+     * PRECONDITION:    the VM command is C_POP, and
+     *                  a value needs to be popped off the stack and stored into the D-Register
      * POSTCONDITION:   commands to put the top of the stack in the D-Register have been written to the output file
      */
     private void writePopD() {
@@ -221,10 +315,50 @@ public class CodeWriter {
     }
 
     /**
-     * Writes assembly code to push a value from the D-Register onto the top of the stack
-     * and simultaneously update the stack pointer (SP).
+     * Writes assembly code to pop the top-most value off the stack and store it into
+     * the virtual segment specified at the indicated index.
      *
-     * PRECONDITION:    a value needs to be pushed onto the stack from the D-Register
+     * PRECONDITION:    the VM command is C_POP, and
+     *                  a value needs to be popped off the stack and stored into memory
+     * POSTCONDITION:   assembly commands to put the top of the stack in segment[index]
+     *                  have been written to the output file
+     *
+     * @param   segment -   the VM virtual memory segment to be accessed
+     * @param   index   -   the specific address within the segment to access
+     */
+    private void writePopToMem(String segment, int index) {
+        writeIndexOffset(segment, index);
+        outputFile.println("D=D+A");
+        outputFile.println("@" + TEMP_LOC);
+        outputFile.println("M=D");
+        writePopD();
+        outputFile.println("@" + TEMP_LOC);
+        outputFile.println("A=M");
+        outputFile.println("M=D");
+    }
+
+    /**
+     * Writes assembly code to pop the top-most value off the stack and store it into
+     * the static segment at the specified index.
+     *
+     * PRECONDITION:    the VM command is C_POP, and
+     *                  a value needs to be popped off the stack and stored into the static memory segment
+     * POSTCONDITION:   assembly commands to put the top of the stack into static[index]
+     *                  have been written to the output file
+     *
+     * @param   index   -   the specific index to access within the static segment
+     */
+    private void writePopToStatic(int index) {
+        writePopD();
+        outputFile.println("@" + getStaticLabel(index));    //  label of form fileName.index
+        outputFile.println("M=D");
+    }
+
+    /**
+     * Writes assembly code to push a value from the D-Register onto the top of the stack.
+     *
+     * PRECONDITION:    the VM command is C_PUSH, and
+     *                  a value needs to be pushed onto the stack from the D-Register
      * POSTCONDITION:   commands to push the value in the D-Register to the top of the stack
      *                  have been written to the output file
      */
@@ -236,6 +370,58 @@ public class CodeWriter {
     }
 
     /**
+     * Writes assembly code to push a constant onto the top of the stack.
+     *
+     * PRECONDITION:    the VM command is C_PUSH, and constant is an integer
+     * POSTCONDITION:   commands to push constant onto the stack have been written to the output file
+     *
+     * @param   constant    -   an integer to push onto the stack
+     */
+    private void writePushConstant(int constant) {
+        outputFile.println("@" + constant);
+        outputFile.println("D=A");
+        writePushD();
+    }
+
+    /**
+     * Writes assembly code to push a value from the indicated index within the specified
+     * virtual memory segment onto the top of the stack.
+     *
+     * PRECONDITION:    the VM command is C_PUSH, and
+     *                  a value needs to be pushed onto the stack from memory
+     * POSTCONDITION:   assembly commands to push a value onto the stack from segment[index]
+     *                  have been written to the output file
+     *
+     * @param   segment -   the VM virtual memory segment to be accessed
+     * @param   index   -   the specific address within the segment to access
+     */
+    private void writePushMemory(String segment, int index) {
+        writeIndexOffset(segment, index);
+        outputFile.println("A=D+A");
+        outputFile.println("D=M");
+        writePushD();
+    }
+
+    /**
+     * Writes assembly code to push a value from the indicated index within the static
+     * virtual memory segment onto the top of the stack.
+     *
+     * PRECONDITION:    the VM command is C_PUSH, and
+     *                  a value needs to be pushed onto the stack from the static memory segment
+     * POSTCONDITION:   assembly commands to push a value onto the stack from static[index]
+     *                  have been written to the output file
+     *
+     * @param   index   -   the specific index to access within the static segment
+     */
+    private void writePushStatic(int index) {
+        outputFile.println("@" + getStaticLabel(index));
+        outputFile.println("D=M");
+        writePushD();
+    }
+
+    //  C_ARITHMETIC Helpers
+
+    /**
      * Writes assembly code to push a value from the D-Register onto the top of the stack
      * and simultaneously update the stack pointer (SP). [writePopD()] Then, it updates the
      * A-Register to the next upper-most value on the stack to perform the binary operation.
@@ -244,10 +430,13 @@ public class CodeWriter {
      *                  (used for ADD, SUB, AND, & OR C_ARITHMETIC commands)
      * POSTCONDITION:   the A-Register holds the address in which to store the result of the
      *                  desired binary operation
+     *
+     * @param   operator    -   the operator for the desired operation [+, -, &, |]
      */
-    private void writeBinaryOp() {
+    private void writeBinaryOp(String operator) {
         writePopD();
         outputFile.println("A=A-1");
+        outputFile.println("M=M" + operator + "D");
     }
 
     /**
@@ -273,21 +462,11 @@ public class CodeWriter {
      * PRECONDITION:    the VM command is an eq, lt, or gt C_ARITHMETIC command
      * POSTCONDITION:   translated assembly code has been written to the output file
      * 
-     * @param   command -   the VM command to perform [determines the assembly jump condition]
+     * @param   jump -   the VM command to perform [determines the assembly jump condition]
      */
-    private void writeInequality(String command) {
-        String jump;
+    private void writeInequality(String jump) {
         String label1 = getBranchLabel();
         String label2 = getBranchLabel();
-        //  A "not" will be applied to the jump condition
-        //  Thus, if command is "<" or ">", the jump condition is reversed.
-        if (command.equals("eq") {
-            jump = "JEQ";
-        } else if (command.equals("lt")) {
-            jump = "JGT";
-        } else {
-            jump = "JLT";
-        }
         //  Construct assembly code
         writePopD();    //  SP is updated to the address of SP - 1
         outputFile.println("A=A-1");

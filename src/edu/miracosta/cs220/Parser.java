@@ -8,15 +8,12 @@
  *
  * History:       Mar. 12, J, author, stubs & documentation based off of Ch. 7 UML
  *                Mar. 13, J, defined and tested all methods
+ *                Mar. 14, J, cleaned up unneeded methods & finalized Parser for part 1
  *
  * Methods:       Public:   Parser(String), hasMoreCommands(), advance()
- *                          getCommandType(), getCommandTypeString(),
- *                          getArg1(), getArg2()
+ *                          getCommandType(), getCommand(), getArg1(), getArg2()
  *
- *                Private:  cleanLine(), parseCommandType(), isArithmeticCMD()
- *                          parse()
- *
- * Notes:
+ *                Private:  cleanLine(), parseCommandType(), isArithmeticCMD(), parse()
  *
  ************************************************************************************/
 package edu.miracosta.cs220;
@@ -58,7 +55,6 @@ public class Parser {
 
     //  File Management & Internal Debugging
     private Scanner inputFile;
-    private int lineNumber;
     private String rawLine;
 
     //  Parsed Command Parts
@@ -84,7 +80,6 @@ public class Parser {
     public Parser(String inFileName) throws  FileNotFoundException {
         if (inFileName != null) {
             inputFile = new Scanner(new File(inFileName));
-            lineNumber = 0;
             rawLine = "";
             cleanLine = "";
             commandType = null;
@@ -136,8 +131,6 @@ public class Parser {
      *                  breaking the instruction into its necessary parts
      */
     public void advance() {
-        //  TODO - Debugging necessary?
-        lineNumber++;
         //  Read the line in
         rawLine = inputFile.nextLine();
         //  Clean it up
@@ -190,9 +183,6 @@ public class Parser {
                     return;
                 }
             }
-            //  TODO: Is below necessary?
-            //  If no match found, internal or compiler error
-            commandType = Command.C_NONE;
         }
     }
 
@@ -300,54 +290,5 @@ public class Parser {
      */
     public String getArg2() {
         return arg2;
-    }
-
-    //  TODO - Is Debugging necessary in the VM?
-    /**
-     * Getter for the String version of commandType (Debugging).
-     *
-     * PRECONDITION:    the type has already been determined (advance() has been called -> parse() -> parseCommandType())
-     * POSTCONDITION:   N/A
-     *
-     * @return      -   the command type as a String
-     */
-    public String getCommandTypeString() {
-        return commandType.toString();
-    }
-
-    /**
-     * Getter for rawLine from the file (Debugging).
-     *
-     * PRECONDITION:    rawLine has been populated with a line from the file (advance() has been called)
-     * POSTCONDITION:   N/A
-     *
-     * @return      -   rawLine
-     */
-    public String getRawLine() {
-        return rawLine;
-    }
-
-    /**
-     * Getter for cleanLine from the file (Debugging).
-     *
-     * PRECONDITION:    cleanLine has been populated with a cleaned line from the file (advance() has been called)
-     * POSTCONDITION:   N/A
-     *
-     * @return      -   cleanLine
-     */
-    public String getCleanLine() {
-        return cleanLine;
-    }
-
-    /**
-     * Getter for lineNumber (Debugging).
-     *
-     * PRECONDITION:    lineNumber represents the current line being parsed (advance() has been called)
-     * POSTCONDITION:   N/A
-     *
-     * @return      -   lineNumber
-     */
-    public int getLineNumber() {
-        return lineNumber;
     }
 }

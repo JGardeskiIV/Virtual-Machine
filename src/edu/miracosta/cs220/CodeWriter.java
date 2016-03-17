@@ -69,24 +69,6 @@ public class CodeWriter {
         initTranslator();   //  Build VM commands/segments -> assembly variants
     }
 
-    /**
-     * Opens output file/stream, prepares to write to it, and informs the code writer that the
-     * translation of a VM file has started.
-     *
-     * PRECONDITION:    outFileName's extension is .asm
-     * POSTCONDITION:   the file stream for outFileName is ready to be written to
-     *                  or a FileNotFoundException has been thrown
-     *
-     * @param   outFileName -   the name of the file to be opened and written to
-     * @param   newVMfileName   -   the name of the VM file being translated
-     *
-     * @throws  FileNotFoundException   -   if outFileName could not be opened or == null
-     */
-    public CodeWriter(String outFileName, String newVMfileName) throws FileNotFoundException {
-        this(outFileName);
-        setFileName(newVMfileName);
-    }
-
     /**************************
      * General Public Methods *
      **************************/

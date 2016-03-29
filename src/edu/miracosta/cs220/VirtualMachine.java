@@ -1,17 +1,21 @@
 /************************************************************************************
  *
  * Class name:    VirtualMachine
- * Description:   Determines .vm files to translate through user input or command-line
+ * Description:   Determines .vm file(s) to translate through user input or command-line
  *                arguments, translating all specified files to a single .asm file.
  *
  * History:       Mar. 13, J, author, testing of Parser methods
  *                Mar. 14, J, testing of CodeWriter methods & overall part 1 translation
  *                Mar. 16, J, finalizing of JFileChooser usage & part 1 translation
- *                TODO  -   refactor translation into a translate() method,
+ *				  Mar. 19, J, adjusted VM file/directory gathering & handling
+ *                Mar. 28, J, refactored translation into a translate() method,
+ *							  added repeated file/directory selection
  *
  * Methods:       Public:   main(String)
  *
- *                Private:
+ *                Private:	translate(File[], CodeWriter), getBootstrap(String),
+ *							convertFileName(String), getFileArray(String),
+ *							useFileChooser(), useSystemLookAndFeel()
  *
  ************************************************************************************/
 package edu.miracosta.cs220;
@@ -20,6 +24,7 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.FileNotFoundException;
 import javax.swing.JFileChooser;
+import javax.swing.JOptionPane;
 import javax.swing.UIManager;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
@@ -63,77 +68,190 @@ public class VirtualMachine {
 
         useSystemLookAndFeel();
 
+        //	Be helpful!
+        String instructions = "This VM allows a single file or directory to be entered\n" +
+                " via the command-line, or the repeated selection of such\n" +
+                " using a JFileChooser. Simply close the file chooser or\n" +
+                " click \"cancel\" when finished translating all projects.";
+
+        JOptionPane.showMessageDialog(null, instructions, "Instructions", JOptionPane.INFORMATION_MESSAGE);
+
         try {
+            File input; // a file or dir
             File[] filesToTranslate;
-            if (args.length == 1) {
-                System.out.println("command line arg = " + args[0]);
-                filesToTranslate = getFileArray(args[0]);
-            } else {
-                filesToTranslate = useFileChooser();
-            }
+            CodeWriter codeWriter;
+            //	Flag for repeated file/directory selection
+            boolean translateAgain = true;
 
-            //  If no files have been gathered, something went wrong
-            if (filesToTranslate == null) {
-                throw new FileNotFoundException("No files available from command-line or JFileChooser.");
-            }
-
-            //	Get to work translating!
-            Parser parser;
-            Parser.Command commandType;
-            String command, arg1, arg2;
-            String currentVMfile = filesToTranslate[0].getPath();   //  Start with the first file
-            CodeWriter codeWriter = new CodeWriter(convertFileName(currentVMfile));
-
-            //	Establish Part 1 driver first - iterate through each line in
-            //	the selected .vm file, [advance()], determine its' command,
-            //	and call the appropriate CodeWriter method, until translation
-            //	is complete.
-            for( File file : filesToTranslate ) {
-                //  Grab the name of each file to create a new Parser object and update codeWriter.
-                currentVMfile = file.getPath();
-
-                parser = new Parser(currentVMfile);
-                codeWriter.setFileName(convertFileName(currentVMfile));
-
-                //  Translate as long as lines are available
-                while(parser.hasMoreCommands()) {
-                    //  Move to next line
-                    parser.advance();
-
-                    //  Update vars after parsing
-                    command = parser.getCommand();
-                    commandType = parser.getCommandType();
-                    arg1 = parser.getArg1();
-                    arg2 = parser.getArg2();
-
-                    //  Translate based on commandType
-                    if (commandType == Parser.Command.C_ARITHMETIC) {
-                        codeWriter.writeArithmetic(command);
-                    } else if (commandType == Parser.Command.C_POP ||
-                            commandType == Parser.Command.C_PUSH) {
-                        codeWriter.writePushPop(commandType, arg1, Integer.parseInt(arg2));
-                    } else {
-                        //  Program flow control handling goes here
-                        //  TODO - part 2 (and anywhere else)
-                    }
+            do {
+                //	Get a file or directory from the command-line or a JFileChooser
+                if (args.length == 1) {
+                    System.out.println("Command-line arg: " + args[0]);
+                    input = new File(args[0]);
+                    //	Only accept one file or directory via command-line
+                    translateAgain = false;
+                } else {
+                    input = useFileChooser();
                 }
-            }
-            //  Clean up [Parser.hasMoreCommands() should have closed the last parser object]
-            codeWriter.close();
 
+                //	If user closed JFileChooser or command-line args invalid, end program.
+                if (input == null) {
+                    System.out.println("No file or directory selected.");
+                    break;
+                }
+
+                //	Otherwise, determine if the input is a file or directory
+                if (input.isDirectory()) {
+                    //	Directory: get all .vm files in the directory
+                    filesToTranslate = getFileArray(input.getPath());
+                } else {
+                    //	File: get the directory & file paths
+                    filesToTranslate = new File[1];
+                    filesToTranslate[0] = input;
+                    input = input.getParentFile();
+                }
+                //	By this point, input is the parent directory to write in
+
+                //  If no files have been gathered, however, something went wrong
+                if (filesToTranslate == null || filesToTranslate.length == 0) {
+                    System.err.println("No .vm files found in \"" + input.getPath() + "\"");
+                    break;
+                }
+
+                //	Establish the ONLY codeWriter for translation
+                System.out.println("Processing " + input.getPath());
+                String outFileName = convertFileName(input.getName());	//	.asm name to write to
+                boolean includeBootstrap = getBootstrap(outFileName);	//	user's choice to include bootstrap code
+
+                //	Build it & translate
+                codeWriter = new CodeWriter(input, outFileName, includeBootstrap);
+                translate(filesToTranslate, codeWriter);
+
+                //  Clean up [Parser.hasMoreCommands() handles parsers in translate(File[], CodeWriter)]
+                codeWriter.close();
+                System.out.println("Translation complete to: " + outFileName + "\n");
+            } while (translateAgain);
         } catch (FileNotFoundException e) {
-            System.err.println(e.getMessage());
+            //	Check any Parser/CodeWriter/Command-line errors
             e.printStackTrace();
         }
+        System.out.println("Program closing...");
+        //	Run garbage collector to prevent random InterruptedException...?
+        System.gc();
     }
 
     /*****************************************
      * Translation & File Management Helpers *
      *****************************************/
 
-    //  STUB - TODO - refactor for loop from main's try block into this method (and any others needed)!
-    private static void translate() {
+    /**
+     * Iterates through each line of each file in the passed in array [advance()],
+     * determines its' command, and calls the appropriate CodeWriter write method
+     * until translation for the passed in program has completed.
+     *
+     * PRECONDITION:	filesToTranslate & codeWriter are not null
+     * POSTCONDITION:	the translation of a file or directory has been completed
+     *
+     * @param	filesToTranslate	-	an array of files to translate into a single
+     *									.asm file (handled by codeWriter)
+     * @param	codeWriter			-	a CodeWriter object to handle translation
+     *									of each .vm file in filesToTranslate into
+     *									the appropriate assembly code
+     *
+     * @throws	FileNotFoundException	-	if a Parser cannot be opened for a file
+     *										within the filesToTranslate array
+     */
+    private static void translate(File[] filesToTranslate, CodeWriter codeWriter) throws FileNotFoundException {
+        //	Setup
+        Parser parser;
+        Parser.Command commandType;
+        String command, arg1, arg2;
+        String currentVMfileName;
 
+        /*	Iterate through each line in the selected .vm file, [advance()],
+         *	determine its' command, and call the appropriate CodeWriter method
+         *  until translation is complete.
+         */
+        for( File file : filesToTranslate ) {
+            //  Grab the name of each file to create a new Parser object and update codeWriter.
+            currentVMfileName = file.getName();
+            System.out.println("Processing " + currentVMfileName);
+
+            //	Create a new Parser for every file, & update codeWriter
+            parser = new Parser(file.getPath());
+            codeWriter.setFileName(convertFileName(currentVMfileName));
+
+            //  Translate as long as lines are available
+            while(parser.hasMoreCommands()) {
+                //  Move to next line
+                parser.advance();
+
+                //  Update vars after parsing
+                command = parser.getCommand();
+                commandType = parser.getCommandType();
+                arg1 = parser.getArg1();
+                arg2 = parser.getArg2();
+
+                //  Translate based on commandType
+                if (commandType == Parser.Command.C_ARITHMETIC)
+                {
+                    codeWriter.writeArithmetic(command);
+                }
+                else if (commandType == Parser.Command.C_POP ||
+                        commandType == Parser.Command.C_PUSH)
+                {
+                    codeWriter.writePushPop(commandType, arg1, Integer.parseInt(arg2));
+                }
+                else if (commandType == Parser.Command.C_LABEL)
+                {
+                    codeWriter.writeLabel(arg1);
+                }
+                else if (commandType == Parser.Command.C_GOTO)
+                {
+                    codeWriter.writeGoto(arg1);
+                }
+                else if (commandType == Parser.Command.C_IF)
+                {
+                    codeWriter.writeIfGoto(arg1);
+                }
+                else if (commandType == Parser.Command.C_CALL)
+                {
+                    codeWriter.writeCall(arg1, Integer.parseInt(arg2));
+                }
+                else if (commandType == Parser.Command.C_FUNCTION)
+                {
+                    codeWriter.writeFunction(arg1, Integer.parseInt(arg2));
+                }
+                else if (commandType == Parser.Command.C_RETURN)
+                {
+                    codeWriter.writeReturn();
+                }
+                //	else commandType == Parser.Command.C_NONE
+            }
+            //	file has no more lines and parser has been closed
+        }
+        //	all files have been translated
+    }
+
+    /**
+     * Uses a JOptionPane to ask the user whether bootstrap code should be
+     * included in the translated .asm file.
+     *
+     * PRECONDITION:	a file or directory has been selected
+     * POSTCONDITION:	bootstrap inclusion has been returned and can be
+     *					passed to the CodeWriter constructor
+     *
+     * @param	outputFileName	-	the name of the .asm file to be created
+     * @return					-	true if bootstrap code should be included, false otherwise
+     */
+    private static boolean getBootstrap(String outputFileName)
+    {
+        int choice = JOptionPane.showConfirmDialog(null,
+                "Include bootstrap code for " + outputFileName + "?",
+                "Bootstrap Selection",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        return choice == JOptionPane.YES_OPTION;
     }
 
     /**
@@ -146,7 +264,11 @@ public class VirtualMachine {
      * @return              -   an .asm file name
      */
     private static String convertFileName(String fileName) {
-        return fileName.substring(0, fileName.indexOf(".")) + ".asm";
+        int fileExt = fileName.indexOf(".");
+        if (fileExt != -1) {
+            fileName = fileName.substring(0, fileExt);
+        }
+        return fileName + ".asm";
     }
 
     /**
@@ -186,23 +308,24 @@ public class VirtualMachine {
 
     /**
      * Constructs and shows a JFileChooser to the user for the selection
-     * of VM files or the directory of a VM program to translate to assembly.
+     * of a VM file or the directory of a VM program to translate to assembly.
      *
      * PRECONDITION:	command-line arguments have NOT been supplied
-     * POSTCONDITION:	the user has selected files to be translated,
+     * POSTCONDITION:	the user has selected a file or directory to be translated,
      *					or an error occurred, and the array returned = null
      *
-     * @return	-	an array of files to be translated to assembly, or null
+     * @return	-	a file or directory to be translated to assembly, or null
      * @throws	FileNotFoundException	-	if selected file cannot be opened by getFileArray()
      */
-    private static File[] useFileChooser() throws FileNotFoundException {
-        JFileChooser chooser = new JFileChooser();
+    private static File useFileChooser() throws FileNotFoundException {
+        //	Construct a JFileChooser with the directory of the source code
+        //	as the current directory
+        JFileChooser chooser = new JFileChooser(System.getProperty("user.dir"));
 
         //	Allow selection of a file or directory
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
 
-        //	Allow the selection of ONLY .vm files, but as many as desired.
-        chooser.setMultiSelectionEnabled(true);
+        //	Allow the selection of ONLY a .vm file or directory.
         FileNameExtensionFilter filter = new FileNameExtensionFilter("VM Files", "vm");
         chooser.setFileFilter(filter);
 
@@ -211,14 +334,7 @@ public class VirtualMachine {
         //	Handle results
         if(returnVal == JFileChooser.APPROVE_OPTION) {
             //	Selection can be 1 file, 1 or more files, or a directory
-            File first = chooser.getSelectedFile();
-            if (first.isDirectory()) {
-                //	If it's a directory, use helper to gather .vm files to translate
-                return getFileArray(first.getPath());
-            } else {
-                //	Otherwise, just return the selected file(s)
-                return chooser.getSelectedFiles();
-            }
+            return chooser.getSelectedFile();
         } else {
             return null;
         }
@@ -243,3 +359,5 @@ public class VirtualMachine {
         }
     }
 }
+
+

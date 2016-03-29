@@ -9,6 +9,7 @@
  * History:       Mar. 12, J, author, stubs & documentation based off of Ch. 7 UML
  *                Mar. 13, J, defined and tested all methods
  *                Mar. 14, J, cleaned up unneeded methods & finalized Parser for part 1
+ *				  Mar. 18, J, fixed bug with isArithmeticCMD() [contains instead of equals]
  *
  * Methods:       Public:   Parser(String), hasMoreCommands(), advance()
  *                          getCommandType(), getCommand(), getArg1(), getArg2()
@@ -22,12 +23,12 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.Scanner;
 
-public class Parser {
+class Parser {
 
     /*************
      * Constants *
      *************/
-    public enum Command {
+    enum Command {
         C_ARITHMETIC,
         C_PUSH,
         C_POP,
@@ -40,14 +41,14 @@ public class Parser {
         C_NONE  //  Blank lines permitted & ignored
     }
     //  Options for the C_ARITHMETIC Command type
-    public static final String[] C_ARITH_STRINGS = {"add",  "sub",  "neg",
-                                                    "eq",   "gt",   "lt",
-                                                    "and",  "or",   "not"};
+    private static final String[] C_ARITH_STRINGS = {"add",  "sub",  "neg",
+            "eq",   "gt",   "lt",
+            "and",  "or",   "not"};
 
     //  Options for all other Command types, aligned with Command enum.
-    public static final String[] C_OTHER_STRINGS = { "push",    "pop",      "label",
-                                                     "goto",    "if-goto",  "function",
-                                                     "return",  "call"};
+    private static final String[] C_OTHER_STRINGS = { "push",    "pop",      "label",
+            "goto",    "if-goto",  "function",
+            "return",  "call"};
 
     /**********************
      * Instance Variables *
@@ -77,7 +78,7 @@ public class Parser {
      *
      * @param   inFileName  -   the name of the file to be opened and read from
      */
-    public Parser(String inFileName) throws  FileNotFoundException {
+    Parser(String inFileName) throws  FileNotFoundException {
         if (inFileName != null) {
             inputFile = new Scanner(new File(inFileName));
             rawLine = "";
@@ -105,7 +106,7 @@ public class Parser {
      *
      * @return      -   true if there are more commands to be read, false otherwise
      */
-    public boolean hasMoreCommands() {
+    boolean hasMoreCommands() {
         //  Scanner's hasNextLine() throws an IllegalStateException if the scanner is closed. Check this first.
         try {
             if (inputFile.hasNextLine()) {
@@ -130,7 +131,7 @@ public class Parser {
      * POSTCONDITION:   the next instruction has been read in and cleaned, and the parse method is
      *                  breaking the instruction into its necessary parts
      */
-    public void advance() {
+    void advance() {
         //  Read the line in
         rawLine = inputFile.nextLine();
         //  Clean it up
@@ -196,9 +197,9 @@ public class Parser {
      * @return  -   true if a C_ARITH_STRINGS element is found in cleanLine, false otherwise
      */
     private boolean isArithmeticCMD() {
-        for( String element : C_ARITH_STRINGS) {
+        for( String element : C_ARITH_STRINGS ) {
             //  Valid commands are not case-sensitive [and = And = AND]
-            if (cleanLine.toLowerCase().contains(element)) {
+            if (cleanLine.toLowerCase().equals(element)) {
                 return true;
             }
         }
@@ -248,7 +249,7 @@ public class Parser {
      *
      * @return      -   the command type as a Command
      */
-    public Command getCommandType() {
+    Command getCommandType() {
         return commandType;
     }
 
@@ -260,7 +261,7 @@ public class Parser {
      *
      * @return      -   the command part of the current VM command, or an empty string
      */
-    public String getCommand() {
+    String getCommand() {
         return command;
     }
 
@@ -274,7 +275,7 @@ public class Parser {
      *
      * @return      -   the first argument of the current VM command, or an empty string
      */
-    public String getArg1() {
+    String getArg1() {
         return arg1;
     }
 
@@ -288,7 +289,9 @@ public class Parser {
      *
      * @return      -   the second argument of the current VM command, or an empty string
      */
-    public String getArg2() {
+    String getArg2() {
         return arg2;
     }
 }
+
+

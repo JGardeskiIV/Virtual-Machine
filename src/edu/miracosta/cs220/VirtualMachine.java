@@ -28,7 +28,7 @@ import javax.swing.JOptionPane;
 import javax.swing.UIManager;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
-public class VirtualMachine {
+class VirtualMachine {
 
     /**
      * VMFilter is intended to be utilized in conjunction with the File.listFiles(FilenameFilter)

@@ -3,6 +3,7 @@
     <words>
       <w>addr</w>
       <w>arith</w>
+      <w>lcl</w>
       <w>mfile</w>
       <w>msegment</w>
       <w>tecs</w>

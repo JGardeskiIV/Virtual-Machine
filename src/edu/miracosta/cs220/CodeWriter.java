@@ -461,7 +461,7 @@ class CodeWriter {
 
     /**
      * Writes assembly code that effects the VM initialization, also
-     * called bootstrap code. Thid code must be placed at the beginning
+     * called bootstrap code. This code must be placed at the beginning
      * of the output file.
      *
      * PRECONDITION:	the output file has been successfully opened
